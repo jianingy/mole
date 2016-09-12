@@ -22,7 +22,8 @@ pub fn run_scan(opts: ArgMatches) {
     let network =
         iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
         .expect("invalid network expression");
-    for ip in network.iter() {
-        println!("{:?}", ip);
+    let ports = opts.values_of("ports").unwrap().collect::<Vec<_>>();
+    for (ip, port) in network.iter().zip(ports.iter()) {
+        println!("{:?}:{:?}", ip, port);
     }
 }
