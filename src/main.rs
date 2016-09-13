@@ -13,12 +13,17 @@
                               11 Sep, 2016
 
  */
+#![feature(plugin, custom_derive)]
+#![plugin(serde)]
 
+#[macro_use] extern crate itertools;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 extern crate clap;
 extern crate env_logger;
 extern crate regex;
+extern crate serde;
+extern crate serde_json;
 
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger::LogBuilder;
@@ -77,7 +82,6 @@ fn init_logger() {
 
 fn main() {
     init_logger();
-
     if let Some(subopts) = OPTIONS.subcommand_matches("scan") {
         scan::run_scan(subopts.clone());
     }

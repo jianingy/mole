@@ -12,18 +12,77 @@
  +--+--+--+--+--+--+--+--+--+--+--+--+--+
                              11 Sep, 2016
 
-*/
+ */
 use clap::ArgMatches;
+use std::collections::{VecDeque, HashMap};
+use std::io::prelude::*;
 use std::net::Ipv4Addr;
-
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use serde_json::{self, Value};
 use iprange;
+
+
+#[derive(Debug, Deserialize)]
+struct HttpBin {
+    headers: HashMap<String, String>,
+}
 
 pub fn run_scan(opts: ArgMatches) {
     let network =
         iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
-        .expect("invalid network expression");
+        .expect("you must specify a valid network expression for --network");
     let ports = opts.values_of("ports").unwrap().collect::<Vec<_>>();
-    for (ip, port) in network.iter().zip(ports.iter()) {
-        println!("{:?}:{:?}", ip, port);
+    let num_workers =
+        opts.value_of("workers").unwrap().parse::<usize>()
+        .expect("you must specify a number for --workers");
+    let mut work_queue = VecDeque::new();
+    for (ip, port) in iproduct!(network.iter(), ports.iter()) {
+        let port = port.parse::<u16>().expect("one of ports is not a number");
+        work_queue.push_back((ip, port));
+    }
+
+    let queue = Arc::new(Mutex::new(work_queue));
+    let mut workers = Vec::new();
+    info!("spawning workers (max = {})", num_workers);
+    for _ in 0..num_workers {
+        let queue = queue.clone();
+        let worker = thread::spawn(move || {
+            loop {
+                let (server, port) = if let Ok(mut queue) = queue.lock() {
+                    if let Some(x) = queue.pop_front() {
+                        x
+                    } else {
+                        // nothing left. just quit.
+                        return ();
+                    }
+                } else {
+                    // lock has been poisioned. we quit here.
+                    return ();
+                };
+                scan_single(server, port);
+            }
+        });
+        workers.push(worker);
+    }
+
+    while let Some(worker) = workers.pop() {
+        let _ = worker.join();
+    }
+
+}
+
+fn scan_single(server: Ipv4Addr, port: u16) {
+    info!("verifying {:?}:{:?} ...", server, port);
+    // verify regular proxy request
+    if let Ok(mut stream) = TcpStream::connect((server, port)) {
+        let mut headers = String::new();
+        let _ = stream.write("GET http://httpbin.org/headers HTTP/1.0\r\n\r\n".as_bytes());
+        let _ = stream.read_to_string(&mut headers);
+        let data: HttpBin = serde_json::from_str(headers.as_str()).unwrap();
+        println!("headers: {:?}", data);
+    } else {
+        println!("connection failed: {:?}:{:?}", server, port);
     }
 }

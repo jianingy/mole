@@ -19,6 +19,8 @@ use std::result;
 use std::net::Ipv4Addr;
 
 lazy_static! {
+    static ref RE_ADDR: Regex =
+        Regex::new("^((?:[0-9]+[.]){3}[0-9]+)$").unwrap();
     static ref RE_CIDR: Regex =
         Regex::new("^((?:[0-9]+[.]){3}[0-9]+)/([0-9]+)$").unwrap();
     static ref RE_NETMASK: Regex =
@@ -80,6 +82,8 @@ impl Ipv4Network {
             Ipv4Network::parse_netmask(&found)
         } else if let Some(found) = RE_CIDR.captures(expr){
             Ipv4Network::parse_cidr(&found)
+        } else if let Some(found) = RE_ADDR.captures(expr){
+            Ipv4Network::parse_address(&found)
         } else {
             Err(Error::UnsupportedFormat(expr.to_string()))
         }
@@ -90,6 +94,16 @@ impl Ipv4Network {
             current: self.network,
             max: self.network + !self.netmask,
         }
+    }
+
+    fn parse_address(found: &Captures) -> Result<Ipv4Network> {
+        let s_ip = found.at(1).unwrap();
+        let ip = try!(Ipv4Addr::from_str(s_ip)
+                      .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
+        let netmask = !(0);
+        let network =
+            ip.octets().iter().fold(0, |s, x| *x as u32 + (s << 8)) & netmask;
+        Ok(Ipv4Network::new(network, netmask))
     }
 
     fn parse_netmask(found: &Captures) -> Result<Ipv4Network> {
