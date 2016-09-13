@@ -24,11 +24,6 @@ use serde_json::{self, Value};
 use iprange;
 
 
-#[derive(Debug, Deserialize)]
-struct HttpBin {
-    headers: HashMap<String, String>,
-}
-
 pub fn run_scan(opts: ArgMatches) {
     let network =
         iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
@@ -76,13 +71,30 @@ pub fn run_scan(opts: ArgMatches) {
 fn scan_single(server: Ipv4Addr, port: u16) {
     info!("verifying {:?}:{:?} ...", server, port);
     // verify regular proxy request
-    if let Ok(mut stream) = TcpStream::connect((server, port)) {
-        let mut headers = String::new();
-        let _ = stream.write("GET http://httpbin.org/headers HTTP/1.0\r\n\r\n".as_bytes());
-        let _ = stream.read_to_string(&mut headers);
-        let data: HttpBin = serde_json::from_str(headers.as_str()).unwrap();
-        println!("headers: {:?}", data);
-    } else {
-        println!("connection failed: {:?}:{:?}", server, port);
-    }
+    let mut stream = match TcpStream::connect((server, port)) {
+        Ok(stream) => stream,
+        _ => {
+            debug!("connection failed: {:?}:{:?}", server, port);
+            return
+        }
+    };
+    let mut resp = String::new();
+    let _ = stream.write("GET http://httpbin.org/headers HTTP/1.0\r\n\r\n".as_bytes());
+    let _ = stream.read_to_string(&mut resp);
+    let body = match resp.splitn(2, "\r\n\r\n").last() {
+        Some(body) => body,
+        _ => return
+    };
+    let data: Value = match serde_json::from_str(body) {
+        Ok(value) => value,
+        _ => return
+    };
+    let headers = match data.find("headers") {
+        Some(headers) => match headers.as_object() {
+            Some(x) => x,
+            _ => return
+        },
+        _ => return
+    };
+    println!("verfied: {:?}:{:?}: {:?}", server, port, headers);
 }
