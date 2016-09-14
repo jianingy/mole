@@ -14,87 +14,153 @@
 
  */
 use clap::ArgMatches;
-use std::collections::{VecDeque, HashMap};
+use iprange;
+use r2d2;
+use r2d2_sqlite::SqliteConnectionManager;
+use serde_json::{self, Value};
+use std::collections::VecDeque;
 use std::io::prelude::*;
+use std::io::{Result as IoResult, Error as IoError, ErrorKind as IoErrorKind};
 use std::net::Ipv4Addr;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use serde_json::{self, Value};
-use iprange;
+use std::time::{Duration, Instant};
 
+macro_rules! io_error {
+    ( $( $a:expr ),* ) => {
+        IoError::new(IoErrorKind::Other, format!( $( $a ),* ).as_str());
+    };
+}
+
+pub fn init_db() -> r2d2::Pool<SqliteConnectionManager> {
+    let config = r2d2::Config::default();
+    let manager = SqliteConnectionManager::new(".mole.sqlite");
+    r2d2::Pool::new(config, manager).unwrap()
+}
 
 pub fn run_scan(opts: ArgMatches) {
+    // command line arguments
+    info!("starting program ...");
     let network =
         iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
         .expect("you must specify a valid network expression for --network");
+    let httpbin = Arc::new(opts.value_of("httpbin").unwrap().to_string());
+    let reference = Arc::new(opts.value_of("reference").unwrap().to_string());
     let ports = opts.values_of("ports").unwrap().collect::<Vec<_>>();
+    let timeout = Duration::new(opts.value_of("timeout").unwrap()
+                                .parse::<u64>().unwrap(), 0);
     let num_workers =
         opts.value_of("workers").unwrap().parse::<usize>()
         .expect("you must specify a number for --workers");
+
+    // prepare workers' data
     let mut work_queue = VecDeque::new();
     for (ip, port) in iproduct!(network.iter(), ports.iter()) {
         let port = port.parse::<u16>().expect("one of ports is not a number");
         work_queue.push_back((ip, port));
     }
-
+    let total_servers = work_queue.len();
     let queue = Arc::new(Mutex::new(work_queue));
+    let db = init_db();
     let mut workers = Vec::new();
-    info!("spawning workers (max = {})", num_workers);
+
+    // spawn workers
+    info!("spawning workers ...");
     for _ in 0..num_workers {
+        let reference = reference.clone();
+        let httpbin = httpbin.clone();
         let queue = queue.clone();
+        let db = db.clone();
         let worker = thread::spawn(move || {
             loop {
                 let (server, port) = if let Ok(mut queue) = queue.lock() {
-                    if let Some(x) = queue.pop_front() {
-                        x
-                    } else {
-                        // nothing left. just quit.
-                        return ();
+                    match queue.pop_front() {
+                        Some(x) => x,
+                        _ => return
                     }
                 } else {
                     // lock has been poisioned. we quit here.
-                    return ();
+                    return
                 };
-                scan_single(server, port);
+                match verify_server(server, port, &httpbin, timeout) {
+                    Ok(_) => {
+                        // do latency testing
+                        let db = db.get().unwrap();
+                        let lag = evaluate_server(
+                            server, port, timeout, &reference);
+                        info!("found: {:?}:{:?} with lag {:?}", server, port, lag);
+                    },
+                    Err(e) => {
+                        debug!("error on verifying server {:?}:{:?}: {:?}",
+                               server, port, e);
+                    }
+                }
             }
         });
         workers.push(worker);
     }
+    info!("{} workers spawned.", workers.len());
+
+    // spawn status
+    let monitor = thread::spawn(move || {
+        loop {
+            let remain_servers = match queue.lock() {
+                Ok(x) => x.len(),
+                _ => continue
+            };
+            info!("current progress: {}/{}.",
+                  total_servers - remain_servers, total_servers);
+            if remain_servers < 1 {
+                info!("scan completed. waiting workers to terminate.");
+                return;
+            }
+            thread::sleep(Duration::new(5, 0));
+        }
+    });
 
     while let Some(worker) = workers.pop() {
         let _ = worker.join();
     }
-
+    let _ = monitor.join();
+    info!("program exited.");
 }
 
-fn scan_single(server: Ipv4Addr, port: u16) {
-    info!("verifying {:?}:{:?} ...", server, port);
+fn verify_server(server: Ipv4Addr, port: u16, httpbin: &str, timeout: Duration)
+                 -> IoResult<()>
+{
+    trace!("verifying {:?}:{:?} ...", server, port);
     // verify regular proxy request
-    let mut stream = match TcpStream::connect((server, port)) {
-        Ok(stream) => stream,
-        _ => {
-            debug!("connection failed: {:?}:{:?}", server, port);
-            return
-        }
-    };
+    let mut stream = try!(TcpStream::connect((server, port)));
+    try!(stream.set_read_timeout(Some(timeout)));
+    try!(stream.set_write_timeout(Some(timeout)));
     let mut resp = String::new();
-    let _ = stream.write("GET http://httpbin.org/headers HTTP/1.0\r\n\r\n".as_bytes());
+    let _ = stream.write(
+        format!("GET http://{host}/headers HTTP/1.0\r\n\
+                 Host: {host}\r\n\r\n", host=httpbin).as_bytes());
     let _ = stream.read_to_string(&mut resp);
-    let body = match resp.splitn(2, "\r\n\r\n").last() {
-        Some(body) => body,
-        _ => return
-    };
-    let data: Value = match serde_json::from_str(body) {
-        Ok(value) => value,
-        _ => return
-    };
-    let headers = match data.find("headers") {
-        Some(headers) => match headers.as_object() {
-            Some(x) => x,
-            _ => return
-        },
-        _ => return
-    };
-    println!("verfied: {:?}:{:?}: {:?}", server, port, headers);
+    let body = try!(resp.splitn(2, "\r\n\r\n").last()
+                    .ok_or(io_error!("malformed HTTP response")));
+    let data: Value = try!(serde_json::from_str(body)
+            .map_err(|_| io_error!("httpbin returns malformed json")));
+    let data = try!(data.find("headers")
+                    .ok_or(io_error!("httpbin returns incompleted data")));
+    let headers = try!(data.as_object()
+                       .ok_or(io_error!("httpbin returns incompleted data")));
+    debug!("found {:?}:{:?}: {:?}", server, port, headers);
+    Ok(())
+}
+
+fn evaluate_server(server: Ipv4Addr, port: u16,
+                   timeout: Duration, reference: &str)
+                   -> IoResult<Duration>
+{
+    let started = Instant::now();
+    let mut stream = try!(TcpStream::connect((server, port)));
+    try!(stream.set_read_timeout(Some(timeout)));
+    try!(stream.set_write_timeout(Some(timeout)));
+    let mut resp = String::new();
+    let _ = stream.write(format!("GET {} HTTP/1.0\r\n\r\n", reference).as_bytes());
+    let _ = stream.read_to_string(&mut resp);
+    Ok(Instant::now() - started)
 }
