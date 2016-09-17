@@ -15,28 +15,23 @@
  */
 use clap::ArgMatches;
 use iprange;
-use r2d2;
-use r2d2_sqlite::SqliteConnectionManager;
 use serde_json::{self, Value};
 use std::collections::VecDeque;
 use std::io::prelude::*;
 use std::io::{Result as IoResult, Error as IoError, ErrorKind as IoErrorKind};
 use std::net::Ipv4Addr;
 use std::net::TcpStream;
+use net2::TcpBuilder;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use db_api;
 
 macro_rules! io_error {
     ( $( $a:expr ),* ) => {
         IoError::new(IoErrorKind::Other, format!( $( $a ),* ).as_str());
     };
-}
-
-pub fn init_db() -> r2d2::Pool<SqliteConnectionManager> {
-    let config = r2d2::Config::default();
-    let manager = SqliteConnectionManager::new(".mole.sqlite");
-    r2d2::Pool::new(config, manager).unwrap()
 }
 
 pub fn run_scan(opts: ArgMatches) {
@@ -45,6 +40,7 @@ pub fn run_scan(opts: ArgMatches) {
     let network =
         iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
         .expect("you must specify a valid network expression for --network");
+    let dbname = opts.value_of("database").unwrap().to_string();
     let httpbin = Arc::new(opts.value_of("httpbin").unwrap().to_string());
     let reference = Arc::new(opts.value_of("reference").unwrap().to_string());
     let ports = opts.values_of("ports").unwrap().collect::<Vec<_>>();
@@ -62,16 +58,17 @@ pub fn run_scan(opts: ArgMatches) {
     }
     let total_servers = work_queue.len();
     let queue = Arc::new(Mutex::new(work_queue));
-    let db = init_db();
+    let db_pool = db_api::init_db(&dbname);
     let mut workers = Vec::new();
 
     // spawn workers
     info!("spawning workers ...");
+    db_api::init_table(db_pool.get().unwrap());
     for _ in 0..num_workers {
         let reference = reference.clone();
         let httpbin = httpbin.clone();
         let queue = queue.clone();
-        let db = db.clone();
+        let db_pool = db_pool.clone();
         let worker = thread::spawn(move || {
             loop {
                 let (server, port) = if let Ok(mut queue) = queue.lock() {
@@ -86,9 +83,11 @@ pub fn run_scan(opts: ArgMatches) {
                 match verify_server(server, port, &httpbin, timeout) {
                     Ok(_) => {
                         // do latency testing
-                        let db = db.get().unwrap();
                         let lag = evaluate_server(
-                            server, port, timeout, &reference);
+                            server, port, timeout, &reference).ok();
+                        // XXX: Get rid of this unwrap, 'cause it will happen in runtime
+                        let db = db_pool.get().unwrap();
+                        db_api::add_proxy(db, server, port, lag);
                         info!("found: {:?}:{:?} with lag {:?}", server, port, lag);
                     },
                     Err(e) => {
@@ -126,12 +125,17 @@ pub fn run_scan(opts: ArgMatches) {
     info!("program exited.");
 }
 
+pub fn run_verify(opts: ArgMatches) {
+
+}
+
 fn verify_server(server: Ipv4Addr, port: u16, httpbin: &str, timeout: Duration)
                  -> IoResult<()>
 {
     trace!("verifying {:?}:{:?} ...", server, port);
     // verify regular proxy request
-    let mut stream = try!(TcpStream::connect((server, port)));
+    let tcp = try!(TcpBuilder::new_v4());
+    let mut stream = try!(tcp.connect((server, port)));
     try!(stream.set_read_timeout(Some(timeout)));
     try!(stream.set_write_timeout(Some(timeout)));
     let mut resp = String::new();

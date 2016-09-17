@@ -13,18 +13,18 @@
                               11 Sep, 2016
 
  */
-#![feature(plugin, custom_derive)]
-#![plugin(serde)]
-
 #[macro_use] extern crate itertools;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 extern crate ansi_term;
 extern crate clap;
 extern crate env_logger;
+extern crate net2;
 extern crate r2d2;
 extern crate r2d2_sqlite;
+extern crate libsqlite3_sys;
 extern crate regex;
+extern crate rusqlite;
 extern crate serde;
 extern crate serde_json;
 
@@ -33,6 +33,7 @@ use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger::LogBuilder;
 use log::{LogRecord, LogLevel, LogLevelFilter};
 
+mod db_api;
 mod iprange;
 mod scan;
 
@@ -42,9 +43,9 @@ lazy_static! {
     static ref OPTIONS: ArgMatches<'static> = {
         App::new("mole")
             .version(VERSION)
-            .about("a tool for finding http proxies")
+            .about("a tool for finding http proxy servers")
             .setting(AppSettings::SubcommandRequired)
-            .setting(AppSettings::ColoredHelp)
+            .global_setting(AppSettings::ColoredHelp)
             .arg(Arg::with_name("verbose")
                  .short("v")
                  .multiple(true))
@@ -76,10 +77,42 @@ lazy_static! {
                              .takes_value(true)
                              .default_value("http://www.baidu.com/")
                              .help("reference for calculating latency"))
+                        .arg(Arg::with_name("database")
+                             .long("database")
+                             .takes_value(true)
+                             .default_value(".mole.sqlite")
+                             .help("path to database file"))
                         .arg(Arg::with_name("network")
                              .required(true)
                              .takes_value(true)
                              .help("network to scan")))
+            .subcommand(SubCommand::with_name("verify")
+                        .about("verify servers in the database")
+                        .arg(Arg::with_name("timeout")
+                             .long("timeout")
+                             .takes_value(true)
+                             .default_value("15")
+                             .help("# of seconds before given up a verification"))
+                        .arg(Arg::with_name("workers")
+                             .long("workers")
+                             .takes_value(true)
+                             .default_value("4")
+                             .help("# of concurrent workers"))
+                        .arg(Arg::with_name("httpbin")
+                             .long("httpbin")
+                             .takes_value(true)
+                             .default_value("httpbin.org")
+                             .help("httpbin server for proxy verification"))
+                        .arg(Arg::with_name("reference")
+                             .long("reference")
+                             .takes_value(true)
+                             .default_value("http://www.baidu.com/")
+                             .help("reference for calculating latency"))
+                        .arg(Arg::with_name("database")
+                             .long("database")
+                             .takes_value(true)
+                             .default_value(".mole.sqlite")
+                             .help("path to database file")))
             .get_matches()
 
     };
