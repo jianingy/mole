@@ -97,7 +97,8 @@ impl Ipv4Network {
     }
 
     fn parse_address(found: &Captures) -> Result<Ipv4Network> {
-        let s_ip = found.at(1).unwrap();
+        let s_ip = try!(found.at(1)
+                        .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
                       .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
         let netmask = !(0);
@@ -107,8 +108,10 @@ impl Ipv4Network {
     }
 
     fn parse_netmask(found: &Captures) -> Result<Ipv4Network> {
-        let s_ip = found.at(1).unwrap();
-        let s_netmask = found.at(2).unwrap();
+        let s_ip = try!(found.at(1)
+                        .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
+        let s_netmask = try!(found.at(2)
+                             .ok_or(Error::UnsupportedFormat("no netmask found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
                       .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
         let mut netmask = 0u32;
@@ -128,9 +131,10 @@ impl Ipv4Network {
     }
 
     fn parse_cidr(found: &Captures) -> Result<Ipv4Network> {
-        let s_ip = found.at(1).unwrap();
-        let s_prefix = found.at(2).unwrap();
-
+        let s_ip = try!(found.at(1)
+                        .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
+        let s_prefix = try!(found.at(2)
+                        .ok_or(Error::UnsupportedFormat("no ip prefix found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
                       .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
         let prefix = try!(s_prefix.parse::<u8>()
