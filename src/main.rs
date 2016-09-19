@@ -19,6 +19,7 @@
 extern crate ansi_term;
 extern crate clap;
 extern crate env_logger;
+extern crate hyper;
 extern crate net2;
 extern crate r2d2;
 extern crate r2d2_sqlite;
@@ -113,6 +114,17 @@ lazy_static! {
                              .takes_value(true)
                              .default_value(".mole.sqlite")
                              .help("path to database file")))
+            .subcommand(SubCommand::with_name("import")
+                        .about("import servers from given file")
+                        .arg(Arg::with_name("database")
+                             .long("database")
+                             .takes_value(true)
+                             .default_value(".mole.sqlite")
+                             .help("path to database file"))
+                        .arg(Arg::with_name("file")
+                             .required(true)
+                             .takes_value(true)
+                             .help("file to import")))
             .get_matches()
 
     };
@@ -150,5 +162,9 @@ fn main() {
     init_logger();
     if let Some(subopts) = OPTIONS.subcommand_matches("scan") {
         scan::run_scan(subopts.clone());
+    } else if let Some(subopts) = OPTIONS.subcommand_matches("verify") {
+        scan::run_verify(subopts.clone());
+    } else if let Some(subopts) = OPTIONS.subcommand_matches("import") {
+        scan::run_import(subopts.clone()).unwrap();
     }
 }
