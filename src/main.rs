@@ -16,6 +16,7 @@
 #[macro_use] extern crate itertools;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
+#[macro_use] extern crate nickel;
 extern crate ansi_term;
 extern crate clap;
 extern crate env_logger;
@@ -34,6 +35,7 @@ use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger::LogBuilder;
 use log::{LogRecord, LogLevel, LogLevelFilter};
 
+mod api;
 mod db_api;
 mod iprange;
 mod scan;
@@ -71,6 +73,7 @@ lazy_static! {
                         .arg(Arg::with_name("httpbin")
                              .long("httpbin")
                              .takes_value(true)
+                             .default_value("127.0.0.1:8000")
                              .default_value("httpbin.org")
                              .help("httpbin server for proxy verification"))
                         .arg(Arg::with_name("reference")
@@ -125,6 +128,18 @@ lazy_static! {
                              .required(true)
                              .takes_value(true)
                              .help("file to import")))
+            .subcommand(SubCommand::with_name("serve")
+                        .about("start api server")
+                        .arg(Arg::with_name("bind")
+                             .long("bind")
+                             .takes_value(true)
+                             .default_value("127.0.0.1:8000")
+                             .help("server bind address"))
+                        .arg(Arg::with_name("database")
+                             .long("database")
+                             .takes_value(true)
+                             .default_value(".mole.sqlite")
+                             .help("path to database file")))
             .get_matches()
 
     };
@@ -166,5 +181,7 @@ fn main() {
         scan::run_verify(subopts.clone());
     } else if let Some(subopts) = OPTIONS.subcommand_matches("import") {
         scan::run_import(subopts.clone()).unwrap();
+    } else if let Some(subopts) = OPTIONS.subcommand_matches("serve") {
+        api::run_api(subopts.clone());
     }
 }

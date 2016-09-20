@@ -16,7 +16,6 @@ n
 use clap::ArgMatches;
 use hyper;
 use net2::TcpBuilder;
-use regex::Regex;
 use serde_json::{self, Value};
 use std::fs::File;
 use std::io::prelude::*;

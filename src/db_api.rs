@@ -17,9 +17,12 @@ use libsqlite3_sys as ffi;
 use r2d2;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Error::SqliteFailure;
+use std::collections::BTreeMap;
+use serde_json::value::{ToJson, Value};
 use std::net::Ipv4Addr;
 use std::result;
 use std::str::FromStr;
+
 
 pub type Pool = r2d2::Pool<SqliteConnectionManager>;
 type Connection = r2d2::PooledConnection<SqliteConnectionManager>;
@@ -60,6 +63,24 @@ impl ProxyServer {
             vanilla: None,
             traceable: None,
         }
+    }
+}
+
+impl ToJson for ProxyServer {
+    fn to_json(&self) -> Value {
+        let mut map = BTreeMap::new();
+        map.insert("host".to_string(), self.host.to_json());
+        map.insert("port".to_string(), self.port.to_json());
+        if let Some(vanilla) = self.vanilla {
+            map.insert("vanilla".to_string(), vanilla.to_json());
+        }
+        if let Some(traceable) = self.traceable {
+            map.insert("traceable".to_string(), traceable.to_json());
+        }
+        if let Some(lag) = self.lag {
+            map.insert("lag".to_string(), lag.to_json());
+        }
+        Value::Object(map)
     }
 }
 
@@ -125,9 +146,13 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<i32> {
 }
 
 pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
+    search_proxy_servers(db, 9999)
+}
+
+pub fn search_proxy_servers(db: Connection, min_lag: i64) -> Result<Vec<ProxyServer>> {
     let mut stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable \
-                                       FROM proxy_servers"));
-    let rows = db_try!(stmt.query_map(&[], |row| {
+                                       FROM proxy_servers WHERE lag < $1 ORDER BY lag"));
+    let rows = db_try!(stmt.query_map(&[&min_lag], |row| {
         let host: String = row.get(0);
         let port: i64 = row.get(1);
         let ip = match Ipv4Addr::from_str(host.as_str()) {
