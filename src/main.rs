@@ -22,9 +22,9 @@ extern crate clap;
 extern crate env_logger;
 extern crate hyper;
 extern crate net2;
+extern crate postgres;
 extern crate r2d2;
-extern crate r2d2_sqlite;
-extern crate libsqlite3_sys;
+extern crate r2d2_postgres;
 extern crate regex;
 extern crate rusqlite;
 extern crate serde;
@@ -84,7 +84,6 @@ lazy_static! {
                         .arg(Arg::with_name("database")
                              .long("database")
                              .takes_value(true)
-                             .default_value(".mole.sqlite")
                              .help("path to database file"))
                         .arg(Arg::with_name("network")
                              .required(true)

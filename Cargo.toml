@@ -9,14 +9,15 @@ env_logger = "0.3"
 hyper = "0.9"
 itertools = "0.4.18"
 lazy_static = "0.1"
-libsqlite3-sys = "0.5"
 log = "0.3"
 net2 = "0.2"
 r2d2 = "0.7.0"
-r2d2_sqlite = "0.1.0"
+r2d2_postgres = "0.10.1"
+postgres = "0.11.11"
 regex = "0.1"
 rusqlite = "0.7.3"
 nickel = "0.8"
+
 
 [dependencies.serde]
 version = "0.8.8"
