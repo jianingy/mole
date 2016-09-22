@@ -1,18 +1,5 @@
-/*
+// Jianing Yang <jianingy.yang@gmail.com> @ 22 Sep, 2016
 
- This piece of code is written by
-    Jianing Yang <jianingy.yang@gmail.com>
- with love and passion!
-n
-        H A P P Y    H A C K I N G !
-              _____               ______
-     ____====  ]OO|_n_n__][.      |    |
-    [________]_|__|________)<     |YANG|
-     oo    oo  'oo OOOO-| oo\\_   ~o~~o~
- +--+--+--+--+--+--+--+--+--+--+--+--+--+
-                             11 Sep, 2016
-
- */
 use clap::ArgMatches;
 use hyper;
 use net2::TcpBuilder;
@@ -49,8 +36,7 @@ macro_rules! io_error {
 
 pub fn run_scan(opts: ArgMatches) {
     info!("starting scanner ...");
-    let network =
-        iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
+    let network = iprange::Ipv4Network::from_str(opts.value_of("network").unwrap())
         .expect("you must specify a valid network expression for --network");
     let dbname = opts.value_of("database").unwrap().to_string();
 
@@ -65,15 +51,22 @@ pub fn run_scan(opts: ArgMatches) {
     let db = db_api::init_db(&dbname).unwrap();
     db_api::init_table(db.get().unwrap()).unwrap();
 
-    scan(db, servers.into_iter(), ScanOptions {
-        gateway: get_gateway_ip(),
-        reference: opts.value_of("reference").unwrap().to_string(),
-        httpbin: opts.value_of("httpbin").unwrap().to_string(),
-        timeout: Duration::new(opts.value_of("timeout").unwrap()
-                               .parse::<u64>().unwrap(), 0),
-        num_workers: opts.value_of("workers").unwrap().parse::<usize>()
-            .expect("you must specify a number for --workers")
-    });
+    scan(db,
+         servers.into_iter(),
+         ScanOptions {
+             gateway: get_gateway_ip(),
+             reference: opts.value_of("reference").unwrap().to_string(),
+             httpbin: opts.value_of("httpbin").unwrap().to_string(),
+             timeout: Duration::new(opts.value_of("timeout")
+                                        .unwrap()
+                                        .parse::<u64>()
+                                        .unwrap(),
+                                    0),
+             num_workers: opts.value_of("workers")
+                 .unwrap()
+                 .parse::<usize>()
+                 .expect("you must specify a number for --workers"),
+         });
     info!("scan completed.");
 }
 
@@ -90,10 +83,15 @@ pub fn run_verify(opts: ArgMatches) {
              gateway: get_gateway_ip(),
              reference: opts.value_of("reference").unwrap().to_string(),
              httpbin: opts.value_of("httpbin").unwrap().to_string(),
-             timeout: Duration::new(opts.value_of("timeout").unwrap()
-                                    .parse::<u64>().unwrap(), 0),
-             num_workers: opts.value_of("workers").unwrap().parse::<usize>()
-                 .expect("you must specify a number for --workers")
+             timeout: Duration::new(opts.value_of("timeout")
+                                        .unwrap()
+                                        .parse::<u64>()
+                                        .unwrap(),
+                                    0),
+             num_workers: opts.value_of("workers")
+                 .unwrap()
+                 .parse::<usize>()
+                 .expect("you must specify a number for --workers"),
          });
     info!("verification completed.");
 }
@@ -112,11 +110,13 @@ pub fn run_import(opts: ArgMatches) -> IoResult<()> {
         .map(|x| {
             let mut s = x.split(':');
             match (s.next(), s.next()) {
-                (Some(host), Some(port)) => match port.parse() {
-                    Ok(port) => Some((host, port)),
-                    _ => None
-                },
-                _ => None
+                (Some(host), Some(port)) => {
+                    match port.parse() {
+                        Ok(port) => Some((host, port)),
+                        _ => None,
+                    }
+                }
+                _ => None,
             }
         })
         .filter(|x| x.is_some())
@@ -166,27 +166,29 @@ fn get_gateway_ip() -> Option<String> {
     ip
 }
 
-fn verify_server(host: Ipv4Addr, port:u16, opts: &ScanOptions)
-                 -> IoResult<db_api::ProxyServer>
-{
+fn verify_server(host: Ipv4Addr, port: u16, opts: &ScanOptions) -> IoResult<db_api::ProxyServer> {
     trace!("connecting {:?}:{:?} ...", host, port);
     // verify regular proxy request
     let request = format!("GET http://{host}/headers HTTP/1.0\r\n\
-                           Host: {host}\r\n\r\n", host=opts.httpbin);
+                           Host: {host}\r\n\r\n",
+                          host = opts.httpbin);
     let resp = try!(http_request(host, port, request.as_str(), opts.timeout));
-    let body = try!(resp.splitn(2, "\r\n\r\n").last()
-                    .ok_or(io_error!("malformed HTTP response")));
+    let body = try!(resp.splitn(2, "\r\n\r\n")
+        .last()
+        .ok_or(io_error!("malformed HTTP response")));
     let data: Value = try!(serde_json::from_str(body)
-            .map_err(|_| io_error!("httpbin returns malformed json")));
+        .map_err(|_| io_error!("httpbin returns malformed json")));
     let data = try!(data.find("headers")
-                    .ok_or(io_error!("httpbin returns incompleted data")));
+        .ok_or(io_error!("httpbin returns incompleted data")));
     let headers = try!(data.as_object()
-                       .ok_or(io_error!("httpbin returns incompleted data")));
+        .ok_or(io_error!("httpbin returns incompleted data")));
     let mut traceable = false;
     if opts.gateway.is_some() {
         let gateway = opts.gateway.clone().unwrap();
         for (_, val) in headers {
-            trace!("matching header with gateway ip: {:?} vs {:?}", val, gateway);
+            trace!("matching header with gateway ip: {:?} vs {:?}",
+                   val,
+                   gateway);
             match val {
                 &Value::String(ref x) if x.find(&gateway).is_some() => {
                     traceable = true;
@@ -205,14 +207,16 @@ fn verify_server(host: Ipv4Addr, port:u16, opts: &ScanOptions)
         host: host,
         port: port,
         lag: Some(lag),
-        vanilla: Some(headers.len() == 1),  // no headers been added
+        vanilla: Some(headers.len() == 1), // no headers been added
         traceable: Some(traceable),
     })
 }
 
-fn evaluate_server(host: Ipv4Addr, port: u16, reference: &str, timeout: Duration)
-                   -> IoResult<Duration>
-{
+fn evaluate_server(host: Ipv4Addr,
+                   port: u16,
+                   reference: &str,
+                   timeout: Duration)
+                   -> IoResult<Duration> {
     let started = Instant::now();
     let request = format!("GET {} HTTP/1.0\r\n\r\n", reference);
     let _ = try!(http_request(host, port, request.as_str(), timeout));
@@ -220,7 +224,7 @@ fn evaluate_server(host: Ipv4Addr, port: u16, reference: &str, timeout: Duration
 }
 
 fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
-    where I: 'static + Iterator<Item=(Ipv4Addr, u16)> + std::marker::Send
+    where I: 'static + Iterator<Item = (Ipv4Addr, u16)> + std::marker::Send
 {
     let total_servers = match servers.size_hint() {
         (_, Some(high)) => Some(high),
@@ -236,21 +240,20 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
                 let (host, port) = if let Ok(mut queue) = queue.lock() {
                     match queue.next() {
                         Some(x) => x,
-                        _ => return
+                        _ => return,
                     }
                 } else {
                     // lock has been poisioned. we quit here.
-                    return
+                    return;
                 };
                 match verify_server(host, port, &opts) {
                     Ok(server) => {
                         // XXX: Get rid of this unwrap, 'cause it will happen in runtime
                         let conn = db.get().unwrap();
                         db_api::add_proxy(conn, server).unwrap();
-                    },
+                    }
                     Err(e) => {
-                        debug!("error on verifying server {:?}:{:?}: {:?}",
-                               host, port, e);
+                        debug!("error on verifying server {:?}:{:?}: {:?}", host, port, e);
                     }
                 }
             }
@@ -264,21 +267,24 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
     let monitor = thread::spawn(move || {
         loop {
             let remain_servers = match queue.lock() {
-                Ok(x) => match x.size_hint() {
-                    (_, Some(high)) => Some(high),
-                    _ => None
-                },
-                _ => continue
+                Ok(x) => {
+                    match x.size_hint() {
+                        (_, Some(high)) => Some(high),
+                        _ => None,
+                    }
+                }
+                _ => continue,
             };
 
             if let (Some(total), Some(remain)) = (total_servers, remain_servers) {
                 info!("progress {2:.2}% ({0}/{1}).",
-                      total - remain, total,
+                      total - remain,
+                      total,
                       100f64 * ((total - remain) as f64) / (total as f64));
             }
             thread::sleep(Duration::new(15, 0));
             if let Ok(_) = rx.try_recv() {
-                return
+                return;
             }
         }
     });

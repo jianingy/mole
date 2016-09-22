@@ -1,18 +1,5 @@
-/*
+// Jianing Yang <jianingy.yang@gmail.com> @ 22 Sep, 2016
 
-This piece of code is written by
-Jianing Yang <jianingy.yang@gmail.com>
-with love and passion!
-
-H A P P Y    H A C K I N G !
-_____               ______
-____====  ]OO|_n_n__][.      |    |
-[________]_|__|________)<     |YANG|
-oo    oo  'oo OOOO-| oo\\_   ~o~~o~
-+--+--+--+--+--+--+--+--+--+--+--+--+--+
-19 Sep, 2016
-
- */
 use clap::ArgMatches;
 use nickel::{Nickel, QueryString};
 use serde_json;

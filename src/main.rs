@@ -1,22 +1,13 @@
-/*
+// Jianing Yang <jianingy.yang@gmail.com> @ 22 Sep, 2016
 
- This piece of code is written by
-    Jianing Yang <jianingy.yang@gmail.com>
- with love and passion!
-
-        H A P P Y    H A C K I N G !
-              _____               ______
-     ____====  ]OO|_n_n__][.      |    |
-    [________]_|__|________)<     |YANG|
-     oo    oo  'oo OOOO-| oo\\_   ~o~~o~
- +--+--+--+--+--+--+--+--+--+--+--+--+--+
-                              11 Sep, 2016
-
- */
-#[macro_use] extern crate itertools;
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate log;
-#[macro_use] extern crate nickel;
+#[macro_use]
+extern crate itertools;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate nickel;
 extern crate ansi_term;
 extern crate clap;
 extern crate env_logger;
@@ -146,29 +137,33 @@ lazy_static! {
 
 fn init_logger() {
     let log_format = |record: &LogRecord| {
-        let message = format!("[{}] {}", match record.level() {
-            LogLevel::Error => "!",
-            LogLevel::Warn => "*",
-            LogLevel::Info => "+",
-            LogLevel::Debug => "#",
-            LogLevel::Trace => "~",
-        }, record.args());
+        let message = format!("[{}] {}",
+                              match record.level() {
+                                  LogLevel::Error => "!",
+                                  LogLevel::Warn => "*",
+                                  LogLevel::Info => "+",
+                                  LogLevel::Debug => "#",
+                                  LogLevel::Trace => "~",
+                              },
+                              record.args());
         match record.level() {
-            LogLevel::Error  => TermColor::Red.paint(message),
-            LogLevel::Warn   => TermColor::Yellow.paint(message),
-            LogLevel::Info   => TermColor::Green.paint(message),
-            LogLevel::Debug  => TermColor::Blue.paint(message),
-            LogLevel::Trace  => TermColor::White.paint(message),
-        }.to_string()
+                LogLevel::Error => TermColor::Red.paint(message),
+                LogLevel::Warn => TermColor::Yellow.paint(message),
+                LogLevel::Info => TermColor::Green.paint(message),
+                LogLevel::Debug => TermColor::Blue.paint(message),
+                LogLevel::Trace => TermColor::White.paint(message),
+            }
+            .to_string()
     };
     let mut builder = LogBuilder::new();
     builder.format(log_format)
-        .filter(None, match OPTIONS.occurrences_of("verbose") {
-            n if n > 2 => LogLevelFilter::Trace,
-            n if n == 2 => LogLevelFilter::Debug,
-            n if n == 1 => LogLevelFilter::Info,
-            _ => LogLevelFilter::Warn
-        });
+        .filter(None,
+                match OPTIONS.occurrences_of("verbose") {
+                    n if n > 2 => LogLevelFilter::Trace,
+                    n if n == 2 => LogLevelFilter::Debug,
+                    n if n == 1 => LogLevelFilter::Info,
+                    _ => LogLevelFilter::Warn,
+                });
     builder.init().unwrap();
 }
 

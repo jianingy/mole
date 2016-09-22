@@ -1,18 +1,5 @@
-/*
+// Jianing Yang <jianingy.yang@gmail.com> @ 22 Sep, 2016
 
- This piece of code is written by
-    Jianing Yang <jianingy.yang@gmail.com>
- with love and passion!
-
-        H A P P Y    H A C K I N G !
-              _____               ______
-     ____====  ]OO|_n_n__][.      |    |
-    [________]_|__|________)<     |YANG|
-     oo    oo  'oo OOOO-| oo\\_   ~o~~o~
- +--+--+--+--+--+--+--+--+--+--+--+--+--+
-                             16 Sep, 2016
-
- */
 use postgres::error;
 use r2d2;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
@@ -35,14 +22,17 @@ pub struct Error {
 
 impl Error {
     fn new(kind: ErrorKind, message: &str) -> Error {
-        Error {kind: kind, message: message.to_string()}
+        Error {
+            kind: kind,
+            message: message.to_string(),
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum ErrorKind {
     General,
-    BadParameter
+    BadParameter,
 }
 
 #[derive(Debug)]
@@ -52,14 +42,12 @@ pub struct ProxyServer {
     pub lag: Option<u16>,
     pub vanilla: Option<bool>,
     pub traceable: Option<bool>,
-
 }
 
 impl ProxyServer {
     pub fn new(host: &str, port: u16) -> Result<ProxyServer> {
         let host = try!(Ipv4Addr::from_str(host)
-                        .map_err(|_| Error::new(ErrorKind::BadParameter,
-                                                "invalid ip adress")));
+            .map_err(|_| Error::new(ErrorKind::BadParameter, "invalid ip adress")));
         Ok(ProxyServer {
             host: host,
             port: port,
@@ -118,21 +106,24 @@ pub fn init_db(name: &str) -> Result<Pool> {
                                   "invalid database connection string"));
         }
     };
-    r2d2::Pool::new(config, manager)
-    .map_err(|x| Error::new(ErrorKind::General,
-                            format!("cannot create tables: {}", x).as_str()))
+    r2d2::Pool::new(config, manager).map_err(|x| {
+        Error::new(ErrorKind::General,
+                   format!("cannot create tables: {}", x).as_str())
+    })
 }
 
 pub fn init_table(db: Connection) -> Result<u64> {
-    db.execute("CREATE TABLE IF NOT EXISTS \
-                proxy_servers (id SERIAL PRIMARY KEY, \
-                host VARCHAR NOT NULL, port INT NOT NULL, lag INT, \
-                vanilla BOOL, traceable BOOL, \
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                UNIQUE(host, port))", &[])
-    .map_err(|x| Error::new(ErrorKind::General,
-                            format!("cannot create tables: {}", x).as_str()))
+    db.execute("CREATE TABLE IF NOT EXISTS proxy_servers (id SERIAL PRIMARY KEY, host VARCHAR \
+                  NOT NULL, port INT NOT NULL, lag INT, vanilla BOOL, traceable BOOL, created_at \
+                  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP \
+                  WITH TIME ZONE DEFAULT NOW(),
+                UNIQUE(host, port))",
+                 &[])
+        .map_err(|x| {
+            Error::new(ErrorKind::General,
+                       format!("cannot create tables: {}", x).as_str())
+        })
 }
 
 pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
@@ -178,19 +169,19 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
             let port: i32 = row.get(1);
             let ip = match Ipv4Addr::from_str(host.as_str()) {
                 Ok(ip) => ip,
-                _ => continue
+                _ => continue,
             };
             servers.push(ProxyServer {
                 host: ip,
                 port: port as u16,
                 lag: match row.get::<_, Option<i32>>(2) {
                     Some(x) => Some(x as u16),
-                    _ => None
+                    _ => None,
                 },
                 vanilla: row.get(3),
                 traceable: row.get(4),
             });
-        };
+        }
     }
     Ok(servers)
 }
@@ -205,19 +196,19 @@ pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxySer
             let port: i32 = row.get(1);
             let ip = match Ipv4Addr::from_str(host.as_str()) {
                 Ok(ip) => ip,
-                _ => continue
+                _ => continue,
             };
             servers.push(ProxyServer {
                 host: ip,
                 port: port as u16,
                 lag: match row.get::<_, Option<i32>>(2) {
                     Some(x) => Some(x as u16),
-                    _ => None
+                    _ => None,
                 },
                 vanilla: row.get(3),
                 traceable: row.get(4),
             });
-        };
+        }
     }
     Ok(servers)
 }
