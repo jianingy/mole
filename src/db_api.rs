@@ -13,11 +13,12 @@
                              16 Sep, 2016
 
  */
+use postgres::error;
 use r2d2;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
-use postgres::error;
-use std::collections::BTreeMap;
 use serde_json::value::{ToJson, Value};
+use std::collections::BTreeMap;
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::result;
 use std::str::FromStr;
@@ -40,7 +41,8 @@ impl Error {
 
 #[derive(Debug)]
 pub enum ErrorKind {
-    General
+    General,
+    BadParameter
 }
 
 #[derive(Debug)]
@@ -54,14 +56,23 @@ pub struct ProxyServer {
 }
 
 impl ProxyServer {
-    pub fn new(host: &str, port: u16) -> ProxyServer {
-        ProxyServer {
-            host: Ipv4Addr::from_str(host).unwrap(),
+    pub fn new(host: &str, port: u16) -> Result<ProxyServer> {
+        let host = try!(Ipv4Addr::from_str(host)
+                        .map_err(|_| Error::new(ErrorKind::BadParameter,
+                                                "invalid ip adress")));
+        Ok(ProxyServer {
+            host: host,
             port: port,
             lag: None,
             vanilla: None,
             traceable: None,
-        }
+        })
+    }
+}
+
+impl fmt::Display for ProxyServer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
     }
 }
 
@@ -100,7 +111,13 @@ macro_rules! db_try {
 
 pub fn init_db(name: &str) -> Result<Pool> {
     let config = r2d2::Config::default();
-    let manager = PostgresConnectionManager::new(name, SslMode::None).unwrap();
+    let manager = match PostgresConnectionManager::new(name, SslMode::None) {
+        Ok(m) => m,
+        Err(_) => {
+            return Err(Error::new(ErrorKind::BadParameter,
+                                  "invalid database connection string"));
+        }
+    };
     r2d2::Pool::new(config, manager)
     .map_err(|x| Error::new(ErrorKind::General,
                             format!("cannot create tables: {}", x).as_str()))
@@ -129,7 +146,10 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
                         VALUES($1, $2, $3, $4, $5)",
                        &[&host, &port, &lag, &server.vanilla, &server.traceable])
     {
-        Ok(n) => {Ok(n)}
+        Ok(n) => {
+            info!("server {} inserted.", server);
+            Ok(n)
+        }
         Err(error::Error::Db(ref error))
             if error.code == error::SqlState::UniqueViolation =>
         {
@@ -141,7 +161,7 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
                              &[&host, &port, &lag,
                                &server.vanilla, &server.traceable])
             );
-            info!("updated {:?}", server);
+            info!("server {} renewed.", server);
             Ok(rows)
         }
         Err(e) => { Err(Error::new(ErrorKind::General, format!("{}", e).as_str())) }

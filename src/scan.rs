@@ -124,8 +124,12 @@ pub fn run_import(opts: ArgMatches) -> IoResult<()> {
         .collect();
     for (host, port) in servers {
         let conn = db.get().unwrap();
-        info!("adding {}:{}", host, port);
-        db_api::add_proxy(conn, db_api::ProxyServer::new(host, port)).unwrap();
+        if let Ok(x) = db_api::ProxyServer::new(host, port) {
+            info!("adding server {}.", x);
+            db_api::add_proxy(conn, x).unwrap();
+        } else {
+            warn!("server address/port incorrect");
+        }
     }
     Ok(())
 }
@@ -150,7 +154,7 @@ fn get_gateway_ip() -> Option<String> {
         if let Err(_) = resp.read_to_string(&mut ip) {
             None
         } else {
-            info!("gateway ip is {}", ip);
+            info!("found gateway ip {}. tracing detection enabled.", ip);
             Some(ip)
         }
     } else {
@@ -242,9 +246,7 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
                     Ok(server) => {
                         // XXX: Get rid of this unwrap, 'cause it will happen in runtime
                         let conn = db.get().unwrap();
-                        info!("found {:?}", server);
                         db_api::add_proxy(conn, server).unwrap();
-
                     },
                     Err(e) => {
                         debug!("error on verifying server {:?}:{:?}: {:?}",
@@ -255,7 +257,7 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
         });
         workers.push(worker);
     }
-    info!("{} workers spawned.", workers.len());
+    info!("workers started (# = {}).", workers.len());
 
     // start status monitor
     let (tx, rx) = mpsc::channel();
@@ -270,11 +272,11 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
             };
 
             if let (Some(total), Some(remain)) = (total_servers, remain_servers) {
-                info!("progress: {2:.2}% ({0}/{1}).",
+                info!("progress {2:.2}% ({0}/{1}).",
                       total - remain, total,
                       100f64 * ((total - remain) as f64) / (total as f64));
             }
-            thread::sleep(Duration::new(5, 0));
+            thread::sleep(Duration::new(15, 0));
             if let Ok(_) = rx.try_recv() {
                 return
             }
