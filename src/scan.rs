@@ -16,6 +16,7 @@ use std;
 
 use db_api;
 use iprange;
+use detection;
 
 #[derive(Debug, Clone)]
 struct ScanOptions {
@@ -199,28 +200,48 @@ fn verify_server(host: Ipv4Addr, port: u16, opts: &ScanOptions) -> IoResult<db_a
         }
     }
     debug!("{:?}:{:?} returns {:?}", host, port, headers);
-    let lag = match evaluate_server(host, port, &opts.reference, opts.timeout) {
+    let tags = detect_server(host, port, opts.timeout).ok();
+    let lag = match ping_reference(host, port, &opts.reference, opts.timeout) {
         Ok(x) => x.as_secs() as u16,
         _ => 9999,
     };
+    info!("{}/{}: {:?}", host, port, tags);
     Ok(db_api::ProxyServer {
         host: host,
         port: port,
         lag: Some(lag),
+        tags: tags,
         vanilla: Some(headers.len() == 1), // no headers been added
         traceable: Some(traceable),
     })
 }
 
-fn evaluate_server(host: Ipv4Addr,
-                   port: u16,
-                   reference: &str,
-                   timeout: Duration)
-                   -> IoResult<Duration> {
+fn ping_reference(host: Ipv4Addr,
+                  port: u16,
+                  reference: &str,
+                  timeout: Duration)
+                  -> IoResult<Duration> {
     let started = Instant::now();
-    let request = format!("GET {} HTTP/1.0\r\n\r\n", reference);
+    let request = format!("GET http://{0} HTTP/1.0\r\nHost: {0}\r\n\r\n", reference);
     let _ = try!(http_request(host, port, request.as_str(), timeout));
     Ok(Instant::now() - started)
+}
+
+fn detect_server(host: Ipv4Addr, port: u16, timeout: Duration) -> IoResult<Vec<String>> {
+    let mut tags = Vec::new();
+    let rules = try!(detection::rules());
+    for (tag, request, needle) in rules {
+        let resp = match http_request(host, port, request.as_str(), timeout) {
+            Ok(x) => x,
+            _ => continue
+        };
+        info!("checking {} for {}/{}: {}", tag, host, port, resp);
+        trace!("detect {}/{}/{} => {}", tag, request, needle, resp);
+        if let Some(_) = resp.find(needle.as_str()) {
+            tags.push(tag)
+        }
+    }
+    Ok(tags)
 }
 
 fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
@@ -254,6 +275,9 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
                     }
                     Err(e) => {
                         debug!("error on verifying server {:?}:{:?}: {:?}", host, port, e);
+                        let server = db_api::ProxyServer::new(&host.to_string(), port).unwrap();
+                        let conn = db.get().unwrap();
+                        db_api::disable_proxy(conn, server).unwrap();
                     }
                 }
             }

@@ -42,6 +42,7 @@ pub struct ProxyServer {
     pub lag: Option<u16>,
     pub vanilla: Option<bool>,
     pub traceable: Option<bool>,
+    pub tags: Option<Vec<String>>,
 }
 
 impl ProxyServer {
@@ -52,6 +53,7 @@ impl ProxyServer {
             host: host,
             port: port,
             lag: None,
+            tags: None,
             vanilla: None,
             traceable: None,
         })
@@ -90,7 +92,7 @@ macro_rules! db_try {
                 Ok(val) => val,
                 Err(e) => {
                     let error = Error::new(ErrorKind::General,
-                                           format!("{}", e).as_str());
+                                           e.to_string().as_str());
                     return Err(error);
                 }
             }
@@ -114,10 +116,9 @@ pub fn init_db(name: &str) -> Result<Pool> {
 
 pub fn init_table(db: Connection) -> Result<u64> {
     db.execute("CREATE TABLE IF NOT EXISTS proxy_servers (id SERIAL PRIMARY KEY, host VARCHAR \
-                  NOT NULL, port INT NOT NULL, lag INT, vanilla BOOL, traceable BOOL, created_at \
+                  NOT NULL, port INT NOT NULL, lag INT, vanilla BOOL, traceable BOOL, tags \
+                  VARCHAR[], created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), updated_at \
                   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP \
-                  WITH TIME ZONE DEFAULT NOW(),
                 UNIQUE(host, port))",
                  &[])
         .map_err(|x| {
@@ -127,35 +128,43 @@ pub fn init_table(db: Connection) -> Result<u64> {
 }
 
 pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
-    let host = format!("{}", server.host);
+    let host = server.host.to_string();
     let port = server.port as i32;
     let lag = match server.lag {
         Some(lag) => Some(lag as i32),
         _ => None,
     };
-    match conn.execute("INSERT INTO proxy_servers(host, port, lag, vanilla, traceable) \
-                        VALUES($1, $2, $3, $4, $5)",
-                       &[&host, &port, &lag, &server.vanilla, &server.traceable])
-    {
+    match conn.execute("INSERT INTO proxy_servers(host, port, lag, vanilla, traceable, tags) \
+                        VALUES($1, $2, $3, $4, $5, $6)",
+                       &[&host, &port, &lag, &server.vanilla, &server.traceable, &server.tags]) {
         Ok(n) => {
             info!("server {} inserted.", server);
             Ok(n)
         }
-        Err(error::Error::Db(ref error))
-            if error.code == error::SqlState::UniqueViolation =>
-        {
+        Err(error::Error::Db(ref error)) if error.code == error::SqlState::UniqueViolation => {
             // Try update
             let rows = db_try!(
                 conn.execute("UPDATE proxy_servers SET lag=$3, vanilla=$4, \
-                              traceable=$5, updated_at=NOW() \
+                              traceable=$5, tags=$6, updated_at=NOW() \
                               WHERE host=$1 AND port=$2",
-                             &[&host, &port, &lag,
-                               &server.vanilla, &server.traceable])
+                    &[&host, &port, &lag,
+                        &server.vanilla, &server.traceable,
+                        &server.tags])
             );
             info!("server {} renewed.", server);
             Ok(rows)
         }
-        Err(e) => { Err(Error::new(ErrorKind::General, format!("{}", e).as_str())) }
+        Err(e) => Err(Error::new(ErrorKind::General, e.to_string().as_str())),
+    }
+}
+
+pub fn disable_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
+    let host = server.host.to_string();
+    let port = server.port as i32;
+    match conn.execute("UPDATE proxy_servers SET lag=9999 WHERE host=$1 AND port=$2",
+                       &[&host, &port]) {
+        Ok(n) => Ok(n),
+        Err(e) => Err(Error::new(ErrorKind::General, e.to_string().as_str())),
     }
 }
 
@@ -178,6 +187,7 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
                     Some(x) => Some(x as u16),
                     _ => None,
                 },
+                tags: None,
                 vanilla: row.get(3),
                 traceable: row.get(4),
             });
@@ -205,6 +215,7 @@ pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxySer
                     Some(x) => Some(x as u16),
                     _ => None,
                 },
+                tags: None,
                 vanilla: row.get(3),
                 traceable: row.get(4),
             });

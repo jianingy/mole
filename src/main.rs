@@ -28,6 +28,7 @@ use log::{LogRecord, LogLevel, LogLevelFilter};
 
 mod api;
 mod db_api;
+mod detection;
 mod iprange;
 mod scan;
 
@@ -58,7 +59,7 @@ lazy_static! {
                         .arg(Arg::with_name("ports")
                              .long("ports")
                              .takes_value(true)
-                             .default_value("3128,8080")
+                             .default_value("3128,8080,8123,8888")
                              .value_delimiter(",")
                              .help("ports to scan"))
                         .arg(Arg::with_name("httpbin")
@@ -70,11 +71,12 @@ lazy_static! {
                         .arg(Arg::with_name("reference")
                              .long("reference")
                              .takes_value(true)
-                             .default_value("http://www.baidu.com/")
+                             .default_value("www.baidu.com")
                              .help("reference for calculating latency"))
                         .arg(Arg::with_name("database")
                              .long("database")
                              .takes_value(true)
+                             .required(true)
                              .help("path to database file"))
                         .arg(Arg::with_name("network")
                              .required(true)
@@ -105,6 +107,7 @@ lazy_static! {
                         .arg(Arg::with_name("database")
                              .long("database")
                              .takes_value(true)
+                             .required(true)
                              .default_value(".mole.sqlite")
                              .help("path to database file")))
             .subcommand(SubCommand::with_name("import")
@@ -112,6 +115,7 @@ lazy_static! {
                         .arg(Arg::with_name("database")
                              .long("database")
                              .takes_value(true)
+                             .required(true)
                              .default_value(".mole.sqlite")
                              .help("path to database file"))
                         .arg(Arg::with_name("file")
@@ -128,6 +132,7 @@ lazy_static! {
                         .arg(Arg::with_name("database")
                              .long("database")
                              .takes_value(true)
+                             .required(true)
                              .default_value(".mole.sqlite")
                              .help("path to database file")))
             .get_matches()
