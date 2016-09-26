@@ -80,6 +80,9 @@ impl ToJson for ProxyServer {
         if let Some(lag) = self.lag {
             map.insert("lag".to_string(), lag.to_json());
         }
+        if let &Some(ref tags) = &self.tags {
+            map.insert("tags".to_string(), tags.to_json());
+        }
         Value::Object(map)
     }
 }
@@ -170,7 +173,7 @@ pub fn disable_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
 
 pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
-    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable \
+    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable,tags \
                                    FROM proxy_servers"));
     if let Ok(rows) = stmt.query(&[]) {
         for row in rows.into_iter() {
@@ -187,9 +190,9 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
                     Some(x) => Some(x as u16),
                     _ => None,
                 },
-                tags: None,
                 vanilla: row.get(3),
                 traceable: row.get(4),
+                tags: row.get(5),
             });
         }
     }
@@ -198,7 +201,7 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
 
 pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
-    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable \
+    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags \
                                    FROM proxy_servers WHERE lag < $1 ORDER BY lag"));
     if let Ok(rows) = stmt.query(&[&max_lag]) {
         for row in rows.into_iter() {
@@ -215,9 +218,9 @@ pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxySer
                     Some(x) => Some(x as u16),
                     _ => None,
                 },
-                tags: None,
                 vanilla: row.get(3),
                 traceable: row.get(4),
+                tags: row.get(5)
             });
         }
     }
