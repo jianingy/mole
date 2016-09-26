@@ -201,15 +201,12 @@ fn verify_server(host: Ipv4Addr, port: u16, opts: &ScanOptions) -> IoResult<db_a
     }
     debug!("{:?}:{:?} returns {:?}", host, port, headers);
     let tags = detect_server(host, port, opts.timeout).ok();
-    let lag = match ping_reference(host, port, &opts.reference, opts.timeout) {
-        Ok(x) => x.as_secs() as u16,
-        _ => 9999,
-    };
+    let lag = ping_reference(host, port, &opts.reference, opts.timeout);
     info!("{}/{}: {:?}", host, port, tags);
     Ok(db_api::ProxyServer {
         host: host,
         port: port,
-        lag: Some(lag),
+        lag: lag.ok(),
         tags: tags,
         vanilla: Some(headers.len() == 1), // no headers been added
         traceable: Some(traceable),

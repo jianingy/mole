@@ -9,7 +9,7 @@ use std::fmt;
 use std::net::Ipv4Addr;
 use std::result;
 use std::str::FromStr;
-
+use std::time::Duration;
 
 pub type Pool = r2d2::Pool<PostgresConnectionManager>;
 type Connection = r2d2::PooledConnection<PostgresConnectionManager>;
@@ -39,7 +39,7 @@ pub enum ErrorKind {
 pub struct ProxyServer {
     pub host: Ipv4Addr,
     pub port: u16,
-    pub lag: Option<u16>,
+    pub lag: Option<Duration>,
     pub vanilla: Option<bool>,
     pub traceable: Option<bool>,
     pub tags: Option<Vec<String>>,
@@ -78,7 +78,7 @@ impl ToJson for ProxyServer {
             map.insert("traceable".to_string(), traceable.to_json());
         }
         if let Some(lag) = self.lag {
-            map.insert("lag".to_string(), lag.to_json());
+            map.insert("lag".to_string(), lag.as_secs().to_json());
         }
         if let &Some(ref tags) = &self.tags {
             map.insert("tags".to_string(), tags.to_json());
@@ -134,7 +134,7 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
     let host = server.host.to_string();
     let port = server.port as i32;
     let lag = match server.lag {
-        Some(lag) => Some(lag as i32),
+        Some(lag) => Some(lag.as_secs() as i32),
         _ => None,
     };
     match conn.execute("INSERT INTO proxy_servers(host, port, lag, vanilla, traceable, tags) \
@@ -164,7 +164,7 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
 pub fn disable_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
     let host = server.host.to_string();
     let port = server.port as i32;
-    match conn.execute("UPDATE proxy_servers SET lag=9999 WHERE host=$1 AND port=$2",
+    match conn.execute("UPDATE proxy_servers SET lag=NULL WHERE host=$1 AND port=$2",
                        &[&host, &port]) {
         Ok(n) => Ok(n),
         Err(e) => Err(Error::new(ErrorKind::General, e.to_string().as_str())),
@@ -187,7 +187,7 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
                 host: ip,
                 port: port as u16,
                 lag: match row.get::<_, Option<i32>>(2) {
-                    Some(x) => Some(x as u16),
+                    Some(x) => Some(Duration::new(x as u64, 0)),
                     _ => None,
                 },
                 vanilla: row.get(3),
@@ -215,7 +215,7 @@ pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxySer
                 host: ip,
                 port: port as u16,
                 lag: match row.get::<_, Option<i32>>(2) {
-                    Some(x) => Some(x as u16),
+                    Some(x) => Some(Duration::new(x as u64, 0)),
                     _ => None,
                 },
                 vanilla: row.get(3),
