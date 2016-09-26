@@ -206,7 +206,7 @@ pub fn search_proxy_servers(db: Connection,
 {
     let mut servers = Vec::new();
     let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags \
-                                   FROM proxy_servers WHERE lag < $1 AND tags @> $2 ORDER BY lag"));
+                                   FROM proxy_servers WHERE lag < $1 AND tags @> $2::VARCHAR[] ORDER BY lag"));
     let lag = if let Some(x) = max_lag { x } else { 9999 };
     if let Ok(rows) = stmt.query(&[&lag, &tags]) {
         for row in rows.into_iter() {
