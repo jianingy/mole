@@ -32,7 +32,7 @@ mod detection;
 mod iprange;
 mod scan;
 
-static VERSION: &'static str = "0.1.2";
+static VERSION: &'static str = "0.2.0";
 
 lazy_static! {
     static ref OPTIONS: ArgMatches<'static> = {
