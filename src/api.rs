@@ -18,13 +18,14 @@ pub fn run_api(opts: ArgMatches) {
         get "/api/v1/servers" => |req| {
             let conn = db.get().unwrap();
             let lag = match req.query().get("lag") {
-                Some(x) => match x.parse::<i32>() {
-                    Ok(x) => x,
-                    _ => 9999,
-                },
-                None => 9999
+                Some(x) => x.parse::<i32>().ok(),
+                None => None
             };
-            match db_api::search_proxy_servers(conn, lag) {
+            let tags = match req.query().get("tags") {
+                Some(x) => x.split(",").collect::<Vec<&str>>(),
+                None => Vec::new()
+            };
+            match db_api::search_proxy_servers(conn, lag, tags) {
                 Ok(servers) => {
                     let v = servers.iter().map(|x| x.to_json()).collect::<Vec<Value>>();
                     serde_json::to_string(&v).unwrap()

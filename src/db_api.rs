@@ -199,11 +199,16 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
     Ok(servers)
 }
 
-pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxyServer>> {
+pub fn search_proxy_servers(db: Connection,
+                            max_lag: Option<i32>,
+                            tags: Vec<&str>)
+                            -> Result<Vec<ProxyServer>>
+{
     let mut servers = Vec::new();
     let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags \
-                                   FROM proxy_servers WHERE lag < $1 ORDER BY lag"));
-    if let Ok(rows) = stmt.query(&[&max_lag]) {
+                                   FROM proxy_servers WHERE lag < $1 AND tags @> $2 ORDER BY lag"));
+    let lag = if let Some(x) = max_lag { x } else { 9999 };
+    if let Ok(rows) = stmt.query(&[&lag, &tags]) {
         for row in rows.into_iter() {
             let host: String = row.get(0);
             let port: i32 = row.get(1);
@@ -220,7 +225,7 @@ pub fn search_proxy_servers(db: Connection, max_lag: i32) -> Result<Vec<ProxySer
                 },
                 vanilla: row.get(3),
                 traceable: row.get(4),
-                tags: row.get(5)
+                tags: row.get(5),
             });
         }
     }
