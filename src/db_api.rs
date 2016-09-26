@@ -10,6 +10,8 @@ use std::net::Ipv4Addr;
 use std::result;
 use std::str::FromStr;
 use std::time::Duration;
+use chrono::DateTime;
+use chrono::offset::local::Local;
 
 pub type Pool = r2d2::Pool<PostgresConnectionManager>;
 type Connection = r2d2::PooledConnection<PostgresConnectionManager>;
@@ -43,19 +45,29 @@ pub struct ProxyServer {
     pub vanilla: Option<bool>,
     pub traceable: Option<bool>,
     pub tags: Option<Vec<String>>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
 }
 
 impl ProxyServer {
-    pub fn new(host: &str, port: u16) -> Result<ProxyServer> {
+    pub fn new(host: &str,
+               port: u16,
+               lag: Option<Duration>,
+               vanilla: Option<bool>,
+               traceable: Option<bool>,
+               tags: Option<Vec<String>>)
+               -> Result<ProxyServer> {
         let host = try!(Ipv4Addr::from_str(host)
             .map_err(|_| Error::new(ErrorKind::BadParameter, "invalid ip adress")));
         Ok(ProxyServer {
             host: host,
             port: port,
-            lag: None,
-            tags: None,
-            vanilla: None,
-            traceable: None,
+            lag: lag,
+            tags: tags,
+            vanilla: vanilla,
+            traceable: traceable,
+            created_at: Local::now(),
+            updated_at: Local::now(),
         })
     }
 }
@@ -83,6 +95,8 @@ impl ToJson for ProxyServer {
         if let &Some(ref tags) = &self.tags {
             map.insert("tags".to_string(), tags.to_json());
         }
+        map.insert("created_at".to_string(), self.created_at.to_json());
+        map.insert("updated_at".to_string(), self.updated_at.to_json());
         Value::Object(map)
     }
 }
@@ -173,7 +187,8 @@ pub fn disable_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
 
 pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
-    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable,tags \
+    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, \
+                                   created_at, updated_at
                                    FROM proxy_servers"));
     if let Ok(rows) = stmt.query(&[]) {
         for row in rows.into_iter() {
@@ -193,6 +208,8 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
                 vanilla: row.get(3),
                 traceable: row.get(4),
                 tags: row.get(5),
+                created_at: row.get(6),
+                updated_at: row.get(7),
             });
         }
     }
@@ -202,11 +219,12 @@ pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
 pub fn search_proxy_servers(db: Connection,
                             max_lag: Option<i32>,
                             tags: Vec<&str>)
-                            -> Result<Vec<ProxyServer>>
-{
+                            -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
-    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags \
-                                   FROM proxy_servers WHERE lag < $1 AND tags @> $2::VARCHAR[] ORDER BY lag"));
+    let stmt =
+        db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, created_at, updated_at \
+                            FROM proxy_servers WHERE lag < $1 AND tags @> $2::VARCHAR[] \
+                            ORDER BY updated_at, lag"));
     let lag = if let Some(x) = max_lag { x } else { 9999 };
     if let Ok(rows) = stmt.query(&[&lag, &tags]) {
         for row in rows.into_iter() {
@@ -226,6 +244,8 @@ pub fn search_proxy_servers(db: Connection,
                 vanilla: row.get(3),
                 traceable: row.get(4),
                 tags: row.get(5),
+                created_at: row.get(6),
+                updated_at: row.get(7),
             });
         }
     }

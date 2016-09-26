@@ -10,6 +10,7 @@ extern crate log;
 extern crate nickel;
 extern crate ansi_term;
 extern crate clap;
+extern crate chrono;
 extern crate env_logger;
 extern crate hyper;
 extern crate net2;

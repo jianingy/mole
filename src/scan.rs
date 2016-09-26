@@ -125,7 +125,7 @@ pub fn run_import(opts: ArgMatches) -> IoResult<()> {
         .collect();
     for (host, port) in servers {
         let conn = db.get().unwrap();
-        if let Ok(x) = db_api::ProxyServer::new(host, port) {
+        if let Ok(x) = db_api::ProxyServer::new(host, port, None, None, None, None) {
             info!("adding server {}.", x);
             db_api::add_proxy(conn, x).unwrap();
         } else {
@@ -203,14 +203,13 @@ fn verify_server(host: Ipv4Addr, port: u16, opts: &ScanOptions) -> IoResult<db_a
     let tags = detect_server(host, port, opts.timeout).ok();
     let lag = ping_reference(host, port, &opts.reference, opts.timeout);
     info!("{}/{}: {:?}", host, port, tags);
-    Ok(db_api::ProxyServer {
-        host: host,
-        port: port,
-        lag: lag.ok(),
-        tags: tags,
-        vanilla: Some(headers.len() == 1), // no headers been added
-        traceable: Some(traceable),
-    })
+    db_api::ProxyServer::new(host.to_string().as_str(),
+                             port,
+                             lag.ok(),
+                             Some(headers.len() == 1),
+                             Some(traceable),
+        tags)
+        .map_err(|e| io_error!("{:?}", e))
 }
 
 fn ping_reference(host: Ipv4Addr,
@@ -230,7 +229,7 @@ fn detect_server(host: Ipv4Addr, port: u16, timeout: Duration) -> IoResult<Vec<S
     for (tag, request, needle) in rules {
         let resp = match http_request(host, port, request.as_str(), timeout) {
             Ok(x) => x,
-            _ => continue
+            _ => continue,
         };
         info!("checking {} for {}/{}: {}", tag, host, port, resp);
         trace!("detect {}/{}/{} => {}", tag, request, needle, resp);
@@ -272,7 +271,13 @@ fn scan<I>(db: db_api::Pool, servers: I, opts: ScanOptions)
                     }
                     Err(e) => {
                         debug!("error on verifying server {:?}:{:?}: {:?}", host, port, e);
-                        let server = db_api::ProxyServer::new(&host.to_string(), port).unwrap();
+                        let server = db_api::ProxyServer::new(&host.to_string(),
+                                                              port,
+                                                              None,
+                                                              None,
+                                                              None,
+                                                              None)
+                            .unwrap();
                         let conn = db.get().unwrap();
                         db_api::disable_proxy(conn, server).unwrap();
                     }
