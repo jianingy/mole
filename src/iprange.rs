@@ -2,8 +2,30 @@
 
 use regex::{Regex, Captures};
 use std::str::FromStr;
-use std::result;
 use std::net::Ipv4Addr;
+
+error_chain! {
+
+    errors {
+        UnsupportedFormat(t: String) {
+            description("unsupported ip address format")
+            display("unsupported ip address format: {}", t)
+        }
+        InvalidAddress(t: String) {
+            description("invalid ip address")
+            display("invalid ip address: {}", t)
+        }
+        InvalidPrefix(t: String) {
+            description("invalid ip prefix")
+            display("invalid ip prefix: {}", t)
+        }
+        InvalidNetmask(t: String) {
+            description("invalid netmask")
+            display("invalid netmask: {}", t)
+        }
+    }
+
+}
 
 lazy_static! {
     static ref RE_ADDR: Regex =
@@ -13,16 +35,6 @@ lazy_static! {
     static ref RE_NETMASK: Regex =
         Regex::new("^((?:[0-9]+[.]){3}[0-9]+)/((?:[0-9]+[.]){3}[0-9]+)$").unwrap();
 }
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    UnsupportedFormat(String),
-    InvalidAddress(String),
-    InvalidPrefix(String),
-    InvalidNetmask(String),
-}
-
-pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub struct Ipv4NetworkIterator {
@@ -71,7 +83,7 @@ impl Ipv4Network {
         } else if let Some(found) = RE_ADDR.captures(expr) {
             Ipv4Network::parse_address(&found)
         } else {
-            Err(Error::UnsupportedFormat(expr.to_string()))
+            Err(ErrorKind::UnsupportedFormat(expr.to_string()).into())
         }
     }
 
@@ -84,9 +96,9 @@ impl Ipv4Network {
 
     fn parse_address(found: &Captures) -> Result<Ipv4Network> {
         let s_ip = try!(found.at(1)
-            .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
+            .ok_or(ErrorKind::UnsupportedFormat("no ip address found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
-            .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
+            .chain_err(|| ErrorKind::InvalidAddress(s_ip.to_string())));
         let netmask = !(0);
         let network = ip.octets().iter().fold(0, |s, x| *x as u32 + (s << 8)) & netmask;
         Ok(Ipv4Network::new(network, netmask))
@@ -94,17 +106,17 @@ impl Ipv4Network {
 
     fn parse_netmask(found: &Captures) -> Result<Ipv4Network> {
         let s_ip = try!(found.at(1)
-            .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
+            .ok_or(ErrorKind::UnsupportedFormat("no ip address found".to_string())));
         let s_netmask = try!(found.at(2)
-            .ok_or(Error::UnsupportedFormat("no netmask found".to_string())));
+            .ok_or(ErrorKind::UnsupportedFormat("no netmask found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
-            .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
+            .chain_err(|| ErrorKind::InvalidAddress(s_ip.to_string())));
         let mut netmask = 0u32;
         for x in s_netmask.split('.') {
             let n = try!(x.parse::<u32>()
-                .map_err(|_| Error::InvalidNetmask(s_netmask.to_string())));
+                .chain_err(|| ErrorKind::InvalidNetmask(s_netmask.to_string())));
             if n > 255 {
-                return Err(Error::InvalidNetmask(s_netmask.to_string()));
+                return Err(ErrorKind::InvalidNetmask(s_netmask.to_string()).into());
             }
             netmask = n + (netmask << 8);
         }
@@ -114,15 +126,15 @@ impl Ipv4Network {
 
     fn parse_cidr(found: &Captures) -> Result<Ipv4Network> {
         let s_ip = try!(found.at(1)
-            .ok_or(Error::UnsupportedFormat("no ip address found".to_string())));
+            .ok_or(ErrorKind::UnsupportedFormat("no ip address found".to_string())));
         let s_prefix = try!(found.at(2)
-            .ok_or(Error::UnsupportedFormat("no ip prefix found".to_string())));
+            .ok_or(ErrorKind::UnsupportedFormat("no ip prefix found".to_string())));
         let ip = try!(Ipv4Addr::from_str(s_ip)
-            .map_err(|_| Error::InvalidAddress(s_ip.to_string())));
+            .chain_err(|| ErrorKind::InvalidAddress(s_ip.to_string())));
         let prefix = try!(s_prefix.parse::<u8>()
-            .map_err(|_| Error::InvalidPrefix(s_prefix.to_string())));
+            .chain_err(|| ErrorKind::InvalidPrefix(s_prefix.to_string())));
         if prefix > 32 {
-            return Err(Error::InvalidPrefix(s_prefix.to_string()));
+            return Err(ErrorKind::InvalidPrefix(s_prefix.to_string()).into());
         }
         let netmask = !((1 << (32 - prefix)) - 1);
         let network = ip.octets().iter().fold(0, |s, x| *x as u32 + (s << 8)) & netmask;

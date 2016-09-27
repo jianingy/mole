@@ -1,4 +1,5 @@
 // Jianing Yang <jianingy.yang@gmail.com> @ 22 Sep, 2016
+#![recursion_limit = "1024"]
 
 #[macro_use]
 extern crate itertools;
@@ -8,6 +9,8 @@ extern crate lazy_static;
 extern crate log;
 #[macro_use]
 extern crate nickel;
+#[macro_use]
+extern crate error_chain;
 extern crate ansi_term;
 extern crate clap;
 extern crate chrono;
@@ -32,6 +35,7 @@ mod db_api;
 mod detection;
 mod iprange;
 mod scan;
+mod errors;
 
 static VERSION: &'static str = "0.2.1";
 

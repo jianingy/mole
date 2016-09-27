@@ -7,35 +7,14 @@ use serde_json::value::{ToJson, Value};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::net::Ipv4Addr;
-use std::result;
 use std::str::FromStr;
 use std::time::Duration;
 use chrono::DateTime;
 use chrono::offset::local::Local;
+use errors::*;
 
 pub type Pool = r2d2::Pool<PostgresConnectionManager>;
 type Connection = r2d2::PooledConnection<PostgresConnectionManager>;
-
-#[derive(Debug)]
-pub struct Error {
-    kind: ErrorKind,
-    message: String,
-}
-
-impl Error {
-    fn new(kind: ErrorKind, message: &str) -> Error {
-        Error {
-            kind: kind,
-            message: message.to_string(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ErrorKind {
-    General,
-    BadParameter,
-}
 
 #[derive(Debug)]
 pub struct ProxyServer {
@@ -58,7 +37,7 @@ impl ProxyServer {
                tags: Option<Vec<String>>)
                -> Result<ProxyServer> {
         let host = try!(Ipv4Addr::from_str(host)
-            .map_err(|_| Error::new(ErrorKind::BadParameter, "invalid ip adress")));
+                        .chain_err(|| ErrorKind::InvalidIpv4Address(host.to_string())));
         Ok(ProxyServer {
             host: host,
             port: port,
@@ -101,34 +80,11 @@ impl ToJson for ProxyServer {
     }
 }
 
-type Result<T> = result::Result<T, Error>;
-
-macro_rules! db_try {
-    ( $expr:expr ) => (
-            match $expr {
-                Ok(val) => val,
-                Err(e) => {
-                    let error = Error::new(ErrorKind::General,
-                                           e.to_string().as_str());
-                    return Err(error);
-                }
-            }
-    );
-}
-
 pub fn init_db(name: &str) -> Result<Pool> {
     let config = r2d2::Config::default();
-    let manager = match PostgresConnectionManager::new(name, SslMode::None) {
-        Ok(m) => m,
-        Err(_) => {
-            return Err(Error::new(ErrorKind::BadParameter,
-                                  "invalid database connection string"));
-        }
-    };
-    r2d2::Pool::new(config, manager).map_err(|x| {
-        Error::new(ErrorKind::General,
-                   format!("cannot create tables: {}", x).as_str())
-    })
+    let manager = try!(PostgresConnectionManager::new(name, SslMode::None)
+                       .chain_err(|| ErrorKind::InvalidDatabaseConnectionString(name.to_string())));
+    r2d2::Pool::new(config, manager).chain_err(|| ErrorKind::DatabaseConnectionError)
 }
 
 pub fn init_table(db: Connection) -> Result<u64> {
@@ -138,10 +94,7 @@ pub fn init_table(db: Connection) -> Result<u64> {
                   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 UNIQUE(host, port))",
                  &[])
-        .map_err(|x| {
-            Error::new(ErrorKind::General,
-                       format!("cannot create tables: {}", x).as_str())
-        })
+        .chain_err(|| ErrorKind::DatabaseError("cannot create table".to_string()))
 }
 
 pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
@@ -160,18 +113,19 @@ pub fn add_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
         }
         Err(error::Error::Db(ref error)) if error.code == error::SqlState::UniqueViolation => {
             // Try update
-            let rows = db_try!(
+            let rows = try!(
                 conn.execute("UPDATE proxy_servers SET lag=$3, vanilla=$4, \
                               traceable=$5, tags=$6, updated_at=NOW() \
                               WHERE host=$1 AND port=$2",
                     &[&host, &port, &lag,
-                        &server.vanilla, &server.traceable,
-                        &server.tags])
+                      &server.vanilla, &server.traceable,
+                      &server.tags])
+                    .chain_err(|| ErrorKind::SQLStatementError("cannot update proxy server".to_string()))
             );
             info!("server {} renewed.", server);
             Ok(rows)
         }
-        Err(e) => Err(Error::new(ErrorKind::General, e.to_string().as_str())),
+        Err(e) => Err(ErrorKind::DatabaseError(e.to_string()).into())
     }
 }
 
@@ -181,15 +135,15 @@ pub fn disable_proxy(conn: Connection, server: ProxyServer) -> Result<u64> {
     match conn.execute("UPDATE proxy_servers SET lag=NULL WHERE host=$1 AND port=$2",
                        &[&host, &port]) {
         Ok(n) => Ok(n),
-        Err(e) => Err(Error::new(ErrorKind::General, e.to_string().as_str())),
+        Err(e) => Err(ErrorKind::DatabaseError(e.to_string()).into()),
     }
 }
 
 pub fn get_proxy_servers(db: Connection) -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
-    let stmt = db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, \
-                                   created_at, updated_at
-                                   FROM proxy_servers"));
+    let stmt = try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, \
+                                created_at, updated_at FROM proxy_servers")
+                    .chain_err(|| "SQL error"));
     if let Ok(rows) = stmt.query(&[]) {
         for row in rows.into_iter() {
             let host: String = row.get(0);
@@ -222,9 +176,10 @@ pub fn search_proxy_servers(db: Connection,
                             -> Result<Vec<ProxyServer>> {
     let mut servers = Vec::new();
     let stmt =
-        db_try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, created_at, updated_at \
-                            FROM proxy_servers WHERE lag < $1 AND tags @> $2::VARCHAR[] \
-                            ORDER BY updated_at, lag"));
+        try!(db.prepare("SELECT host, port, lag, vanilla, traceable, tags, created_at, updated_at \
+                         FROM proxy_servers WHERE lag < $1 AND tags @> $2::VARCHAR[] \
+                         ORDER BY updated_at, lag")
+        .chain_err(|| "SQL Error"));
     let lag = if let Some(x) = max_lag { x } else { 9999 };
     if let Ok(rows) = stmt.query(&[&lag, &tags]) {
         for row in rows.into_iter() {
